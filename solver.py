@@ -1,5 +1,7 @@
 from letter_tree import basic_english
 from board import sample_board
+import points as sp
+
 
 class SolveState:
     def __init__(self, dictionary, board, rack):
@@ -8,6 +10,7 @@ class SolveState:
         self.rack = rack
         self.cross_check_results = None
         self.direction = None
+        self.best_move_info = [None, 0, None, (-1,-1), None] # [word, score, direction, starting_position, board]
 
     def before(self, pos):
         row, col = pos
@@ -38,7 +41,6 @@ class SolveState:
             return row, col + 1
 
     def legal_move(self, word, last_pos):
-        print('found a word:', word)
         board_if_we_played_that = self.board.copy()
         play_pos = last_pos
         word_idx = len(word) - 1
@@ -46,8 +48,23 @@ class SolveState:
             board_if_we_played_that.set_tile(play_pos, word[word_idx])
             word_idx -= 1
             play_pos = self.before(play_pos)
-        print(board_if_we_played_that)
-        print()
+
+        # Calculate the score for the played word and update the best move 
+        score = 0
+        if( len(word) == 1 ): # Special case for single letter words ('a', 'i')
+            score = self.calculate_score([[[word, play_pos]]])
+        else:
+            score = self.calculate_score(self.detect_all_board_words(board_if_we_played_that))
+        print(f"Word: {word}, Score: {score}, "
+                  f"Direction: {self.direction}, Starting position: {self.before(play_pos)}")
+        
+        if score > self.best_move_info[1]:
+            self.best_move_info[0] = word
+            self.best_move_info[1] = score
+            self.best_move_info[2] = self.direction
+            self.best_move_info[3] = self.after(play_pos)
+            self.best_move_info[4] = board_if_we_played_that
+
 
     def cross_check(self):
         result = dict()
@@ -154,7 +171,114 @@ class SolveState:
                         scan_pos = self.before(scan_pos)
                     self.before_part("", self.dictionary.root, anchor_pos, limit)
 
-solver = SolveState(basic_english(), sample_board(), ['e', 'f', 'f', 'e', 'c', 't'])
+    # Detect all words formed on the board after playing a word
+    # Returns a list containing lists of tokenized words which contain lists of each letter and their positions
+    # For example, if the board has the letters 'train' horizontally and 'hi' vertically, the return result will be:
+    # [ [['t', (7, 7)], ['r', (7, 8)], ['a', (7, 9)], ['i', (7, 10)], ['n', (7, 11)]], [['h',(6,10)], ['i', (7, 10)]] ]
+    def detect_all_board_words(self, board_if_we_played_that):
+
+        curr_board = self.board
+        letters_and_positions = []
+
+        # Horizontal words
+        for row in range(self.board.size):
+            curr_letter_and_position = []
+            is_new_word = False
+            for col in range(self.board.size):
+                if board_if_we_played_that.get_tile((row,col)) != None:
+                    curr_letter_and_position.append([board_if_we_played_that.get_tile((row,col)), (row, col)])
+                    # Check if the word is new or already exists on the current board (self.board)
+                    # The word is considered new if a new letter is detected
+                    if board_if_we_played_that.get_tile((row,col)) != curr_board.get_tile((row,col)):
+                        is_new_word = True
+                else :
+                    if is_new_word and len(curr_letter_and_position)>1: # If the word is new and has more than one letter
+                        letters_and_positions.append(curr_letter_and_position)
+                    curr_letter_and_position= []
+                    is_new_word = False
+            if is_new_word and len(curr_letter_and_position)>1 :
+                letters_and_positions.append(curr_letter_and_position)
+
+        
+        # Vertical words
+        for col in range(self.board.size):
+            curr_letter_and_position = []
+            is_new_word = False
+            for row in range(self.board.size):
+                if board_if_we_played_that.get_tile((row,col)) != None:
+                    curr_letter_and_position.append([board_if_we_played_that.get_tile((row,col)), (row, col)])
+                    if board_if_we_played_that.get_tile((row,col)) != curr_board.get_tile((row,col)):
+                        is_new_word = True
+                else :
+                    if is_new_word and len(curr_letter_and_position)>1:
+                        letters_and_positions.append(curr_letter_and_position)
+                    curr_letter_and_position = []
+                    is_new_word = False
+            if is_new_word and len(curr_letter_and_position)>1:
+                letters_and_positions.append(curr_letter_and_position)
+
+        return letters_and_positions
+    
+    # Calculate the score of the current board setup after playing the word
+    # It takes into account the letter scores, bonus tiles, and the possibility of using all letters in the rack
+    # Returns the total score of the current board setup
+    def calculate_score(self, letters_and_positions):
+
+        total_score = 0
+        
+        for word in letters_and_positions:
+            word_score = 0
+            word_bonuses = []
+            for lp in word :
+                letter = lp[0]
+                letter_position = lp[1]
+                has_bonus = False
+                for tile in sp.bonus_tiles:
+                    bonus_positions = sp.bonus_tiles[tile]
+                    if letter_position in bonus_positions:
+                        if tile == "DL":
+                            word_score += (sp.letter_scores[letter]*2)
+                            has_bonus = True
+                        elif tile == "TL":
+                            word_score+= (sp.letter_scores[letter]*3)
+                            has_bonus = True
+                        else :
+                            word_bonuses.append(tile)
+                
+                # If the letter does not have a bonus, add its normal score
+                if not has_bonus:
+                    word_score += sp.letter_scores[letter]
+        
+            # Add word bonuses 
+            for bonus in word_bonuses:
+                if bonus == "TW":
+                    word_score*=3
+                else :
+                    word_score*=2
+            #print("Word: ",word, "Score: ", word_score)
+            total_score += word_score
+            
+            # If the AI can place all the 7 letters in the rack, add 50 points
+            if len(self.rack) == 0:
+                total_score+=50
+                
+        return total_score
+    
+    def print_best_move(self):
+        if self.best_move_info[0] is not None:
+            print(f"Best move: {self.best_move_info[0]}, Score: {self.best_move_info[1]}, "
+                  f"Direction: {self.best_move_info[2]}, Starting position: {self.best_move_info[3]}")
+            print("Board after the best move:")
+            print(self.best_move_info[4])
+        else:
+            print("No valid moves found.")
+
+        
+
+solver = SolveState(basic_english(), sample_board(), ['e', 'a', 'f', 'b', 'i', 't','s'])#['a', 'r', 'i', 'e', 'b', 'i','w']
+print("Initial Board:")
 print(solver.board)
-print()
+print("\n\n\n\nAll options:")
 solver.find_all_options()
+print("\n\n\n\n")
+solver.print_best_move()

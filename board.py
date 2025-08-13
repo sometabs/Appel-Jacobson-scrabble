@@ -43,8 +43,14 @@ class Board:
         return result
 
 def sample_board():
-    result = Board(7)
+    '''result = Board(7)
     result.set_tile((1, 1), 'o')
     result.set_tile((2, 1), 'f')
-    result.set_tile((2, 5), 'r')
+    result.set_tile((2, 5), 'r')'''
+    result = Board(15)
+    result.set_tile((7, 7), 't')
+    result.set_tile((7, 8), 'r')
+    result.set_tile((7, 9), 'a')
+    result.set_tile((7, 10), 'i')
+    result.set_tile((7, 11), 'n')
     return result
